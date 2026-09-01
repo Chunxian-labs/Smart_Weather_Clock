@@ -1,0 +1,25 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "cwd": "${workspaceRoot}",
+            "executable": "./build/Smart_Weather_Clock.elf",
+            "name": "Debug Microcontroller",
+            "request": "launch",
+            "type": "cortex-debug",
+            "servertype": "openocd",
+            "serverpath": "D:/Embedded_Toolchain/OpenOCD/xpack-openocd-0.12.0-7/bin/openocd.exe",
+            "armToolchainPath": "D:/Embedded_Toolchain/Arm-GNU-Toolchain/bin",
+            "configFiles": [
+                "interface/stlink.cfg",
+                "target/stm32f4x.cfg"
+            ],
+            "searchDir": [
+                "D:/Embedded_Toolchain/OpenOCD/xpack-openocd-0.12.0-7/openocd/scripts"
+            ],
+            "device": "STM32F407VET6",
+            "interface": "swd",
+            "runToEntryPoint": "main"
+        }
+    ]
+}
