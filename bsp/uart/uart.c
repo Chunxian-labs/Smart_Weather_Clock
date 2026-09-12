@@ -1,7 +1,8 @@
 #include "uart.h"
 #include "stm32f4xx.h"
-#include "cpu_tick.h"
 #include "ring_buffer.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include <stddef.h>
 #include <stdbool.h>
 //USART1-TX PA9
@@ -120,10 +121,10 @@ void uart2_init(void)
 }
 bool uart1_write_byte(uint8_t data)
 {
-    uint64_t start = cpu_tick_get_ms();
+    TickType_t start = xTaskGetTickCount();
     while(USART_GetFlagStatus(USART1, USART_FLAG_TXE) != SET)
     {
-        if(cpu_tick_get_ms() - start >= 100)
+        if(xTaskGetTickCount() - start >= pdMS_TO_TICKS(100))
         {
             return false;
         }
@@ -135,10 +136,10 @@ bool uart1_read_byte(uint8_t *data,uint32_t timeout_ms)
 {
     if(data == NULL)
         return false;
-    uint64_t start = cpu_tick_get_ms();
+    TickType_t start = xTaskGetTickCount();
     while(ring_buffer_is_empty(&uart1_rx_buffer))
     {
-        if(cpu_tick_get_ms() - start >= timeout_ms)
+        if(xTaskGetTickCount() - start >= pdMS_TO_TICKS(timeout_ms))
         {
             return false;
         }
@@ -147,10 +148,10 @@ bool uart1_read_byte(uint8_t *data,uint32_t timeout_ms)
 }
 bool uart2_write_byte(uint8_t data)
 {
-    uint64_t start = cpu_tick_get_ms();
+    TickType_t start = xTaskGetTickCount();
     while(USART_GetFlagStatus(USART2, USART_FLAG_TXE) != SET)
     {
-        if(cpu_tick_get_ms() - start >= 100)
+        if(xTaskGetTickCount() - start >= pdMS_TO_TICKS(100))
         {
             return false;
         }
@@ -162,10 +163,10 @@ bool uart2_read_byte(uint8_t *data,uint32_t timeout_ms)
 {
     if(data == NULL)
         return false;
-    uint64_t start = cpu_tick_get_ms();
+    TickType_t start = xTaskGetTickCount();
     while(ring_buffer_is_empty(&uart2_rx_buffer))
     {
-        if(cpu_tick_get_ms() - start >= timeout_ms)
+        if(xTaskGetTickCount() - start >= pdMS_TO_TICKS(timeout_ms))
         {
             return false;
         }

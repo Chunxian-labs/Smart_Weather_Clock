@@ -1,7 +1,7 @@
 #include "aht20.h"
 #include "i2c.h"
-#include "cpu_tick.h"
-
+#include "FreeRTOS.h"
+#include "task.h"
 /*
 I2C2
 SCL PB10
@@ -12,7 +12,7 @@ static uint8_t MEASUREMENT_CMD[3] = {0xAC,0x33,0x00};
 
 bool AHT20_Init(void)
 {
-    cpu_delay_us(1000*40);
+    vTaskDelay(pdMS_TO_TICKS(40));
     if(!AHT20_isready())
     {
         if(!AHT20_write(INITIALIZATION_CMD,3)) return false;
@@ -56,7 +56,7 @@ bool AHT20_Measurement_Delay(void)
 {
     for(uint8_t t=0;t<200;t++)
     {
-        cpu_delay_us(1000);
+        vTaskDelay(pdMS_TO_TICKS(1));
         if(!AHT20_isbusy()) return true;
     }
     return false;

@@ -1,7 +1,8 @@
 #include "esp32.h"
 #include "uart.h"
 #include "stddef.h"
-#include "cpu_tick.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include <string.h>
 #include <stdio.h>
 /*
@@ -74,18 +75,19 @@ static AT_ACK_T ESP_AT_USART_Wait_Response(uint32_t timeout)
     uint32_t rxlen = 0;
     const char *line = rxbuff;
     rxbuff[0] = '\0';
-    uint64_t start = cpu_tick_get_ms();//获取当前时间，毫秒级的超时时间计算
+    TickType_t start = xTaskGetTickCount();//获取当前时间，毫秒级的超时时间计算
     while(rxlen<sizeof(rxbuff)-1)
     {
-        uint64_t elapsed = cpu_tick_get_ms()-start;//计算当前时间到开始时间的毫秒数，用于超时判断
-        if(elapsed >= timeout)
+        TickType_t elapsed_ticks = xTaskGetTickCount() - start;
+        uint32_t elapsed_ms = elapsed_ticks * portTICK_PERIOD_MS;
+
+        if (elapsed_ms >= timeout)
         {
             return AT_ACK_NONE;
         }
-        uint32_t remaining = timeout - (uint32_t)elapsed;
-        //用于ESP回复数据的逻辑判断
-        // rxbuff[rxlen++] = USART_ReceiveData(USART2);
-        if(!uart2_read_byte((uint8_t *)&rxbuff[rxlen],remaining))
+        uint32_t remaining_ms = timeout - elapsed_ms;
+
+        if (!uart2_read_byte((uint8_t *)&rxbuff[rxlen], remaining_ms))
         {
             return AT_ACK_NONE;
         }

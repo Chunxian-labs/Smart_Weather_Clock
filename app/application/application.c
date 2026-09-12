@@ -6,7 +6,10 @@
 #include "st7789.h"
 #include "aht20.h"
 #include "bsp.h"
-#include "cpu_tick.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "timers.h"
+#include "queue.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -18,15 +21,205 @@
 #define TIME_SYNC_INTERVAL			DAYS(1)
 #define WIFI_UPDATE_INTERVAL		SECONDS(5)
 #define TIME_UPDATE_INTERVAL		SECONDS(1)
-#define INDOOR_UNPDATE_INTERVAL		SECONDS(3)
-#define OUTDOOR_UNPDATE_INTERVAL	MINUTES(1)
+#define INDOOR_UPDATE_INTERVAL		SECONDS(3)
+#define OUTDOOR_UPDATE_INTERVAL		MINUTES(1)
+// 网络任务处理的事件
+#define NET_EVT_OUTDOOR_FETCH	    (1UL << 0)
+#define NET_EVT_WIFI_QUERY			(1UL << 1)
+#define NET_EVT_TIME_SYNC			(1UL << 2)
+#define NET_EVT_ALL					(NET_EVT_OUTDOOR_FETCH | NET_EVT_WIFI_QUERY | NET_EVT_TIME_SYNC)
+// 应用/UI 任务处理的事件
+#define APP_EVT_TIME_UPDATE         (1UL << 0)
+#define APP_EVT_INDOOR_UPDATE	  	(1UL << 1)
+#define APP_EVT_OUTDOOR_UPDATE		(1UL << 2)
+#define APP_EVT_WIFI_UPDATE			(1UL << 3)
+#define APP_EVT_TIME_SYNC			(1UL << 4)
+
+#define APP_EVT_WEATHER_READY		(1UL << 5)
+#define APP_EVT_WIFI_READY			(1UL << 6)
+#define APP_EVT_TIME_SYNC_READY		(1UL << 7)
+#define APP_EVT_ALL_EVENTS			(APP_EVT_TIME_UPDATE |\
+									APP_EVT_INDOOR_UPDATE |\
+									APP_EVT_OUTDOOR_UPDATE |\
+									APP_EVT_WIFI_UPDATE |\
+									APP_EVT_TIME_SYNC |\
+									APP_EVT_WEATHER_READY |\
+									APP_EVT_WIFI_READY |\
+									APP_EVT_TIME_SYNC_READY)	
 #define WEATHER_URL "https://api.seniverse.com/v3/weather/now.json?key=SZWlQoqIpQd5ekJQI&location=beijing&language=en&unit=c" 
-static volatile uint32_t time_sync_delay;
-static volatile uint32_t wifi_update_delay;
-static volatile uint32_t time_update_delay;
-static volatile uint32_t indoor_update_delay;
-static volatile uint32_t outdoor_update_delay;
-void application_init(void)
+static TaskHandle_t application_task_handle = NULL;
+static TaskHandle_t network_task_handle = NULL;
+static TimerHandle_t time_update_timer = NULL;
+static TimerHandle_t indoor_update_timer = NULL;
+static TimerHandle_t outdoor_update_timer = NULL;
+static TimerHandle_t wifi_update_timer = NULL;
+static TimerHandle_t time_sync_timer = NULL;
+static QueueHandle_t weather_result_queue = NULL;
+static QueueHandle_t wifi_result_queue = NULL;
+static QueueHandle_t time_sync_result_queue = NULL;
+static void application_init(void);
+static void time_update(void);
+static void indoor_update(void);
+static bool outdoor_fetch(weather_info_t *weather_info);
+static void outdoor_display_update(const weather_info_t *weather_info);
+static bool wifi_fetch(ESP32_WIFI_Info_T *info);
+static void wifi_display_update(const ESP32_WIFI_Info_T *info);
+static bool time_fetch(esp_date_time_t *esp_date);
+static void time_apply(const esp_date_time_t *esp_date);
+static void time_update_timer_callback(TimerHandle_t xTimer)
+{
+	(void)xTimer;
+	xTaskNotify(application_task_handle, APP_EVT_TIME_UPDATE, eSetBits);
+}
+static void indoor_update_timer_callback(TimerHandle_t xTimer)
+{
+	(void)xTimer;
+	xTaskNotify(application_task_handle, APP_EVT_INDOOR_UPDATE, eSetBits);
+}
+static void outdoor_update_timer_callback(TimerHandle_t xTimer)
+{
+	(void)xTimer;
+	xTaskNotify(application_task_handle, APP_EVT_OUTDOOR_UPDATE, eSetBits);
+}
+static void wifi_update_timer_callback(TimerHandle_t xTimer)
+{
+	(void)xTimer;
+	xTaskNotify(application_task_handle, APP_EVT_WIFI_UPDATE, eSetBits);
+}
+static void time_sync_timer_callback(TimerHandle_t xTimer)
+{
+	(void)xTimer;
+	xTaskNotify(application_task_handle, APP_EVT_TIME_SYNC, eSetBits);
+}
+static void network_task(void *argument)
+{
+	uint32_t event;
+	(void)argument;
+	while(1)
+	{
+		xTaskNotifyWait(0,NET_EVT_ALL,&event,portMAX_DELAY);
+		if(event & NET_EVT_OUTDOOR_FETCH)
+		{
+			weather_info_t weather_info = {0};
+			if(outdoor_fetch(&weather_info))
+			{
+				xQueueOverwrite(weather_result_queue, &weather_info);
+				xTaskNotify(application_task_handle, APP_EVT_WEATHER_READY, eSetBits);
+			}
+		}
+		if(event & NET_EVT_WIFI_QUERY)
+		{
+			ESP32_WIFI_Info_T wifi_info = {0};
+			if(wifi_fetch(&wifi_info))
+			{
+				xQueueOverwrite(wifi_result_queue, &wifi_info);
+				xTaskNotify(application_task_handle, APP_EVT_WIFI_READY, eSetBits);
+			}
+		}
+		if(event & NET_EVT_TIME_SYNC)
+		{
+			esp_date_time_t esp_date = {0};
+			if(time_fetch(&esp_date))
+			{
+				xQueueOverwrite(time_sync_result_queue, &esp_date);
+				xTaskNotify(application_task_handle, APP_EVT_TIME_SYNC_READY, eSetBits);
+			}
+		}
+	}
+}
+static void application_task(void *argument)
+{
+	uint32_t event;
+	(void)argument;
+	application_init();
+	xTaskNotify(network_task_handle, NET_EVT_TIME_SYNC, eSetBits);
+	xTaskNotify(application_task_handle,APP_EVT_OUTDOOR_UPDATE,eSetBits);
+	while(1)
+	{
+		xTaskNotifyWait(0,APP_EVT_ALL_EVENTS,&event,portMAX_DELAY);
+		if(event & APP_EVT_TIME_UPDATE)
+		{
+			time_update();
+		}
+		if(event & APP_EVT_INDOOR_UPDATE)
+		{
+			indoor_update();
+		}
+		if(event & APP_EVT_OUTDOOR_UPDATE)
+		{
+			xTaskNotify(network_task_handle, NET_EVT_OUTDOOR_FETCH, eSetBits);
+		}
+		if(event & APP_EVT_WEATHER_READY)
+		{
+			weather_info_t weather_info = {0};
+			if(xQueueReceive(weather_result_queue, &weather_info, 0)== pdPASS)
+			{
+				outdoor_display_update(&weather_info);
+			}
+		}
+		
+		if(event & APP_EVT_WIFI_UPDATE)
+		{
+			xTaskNotify(network_task_handle, NET_EVT_WIFI_QUERY, eSetBits);
+		}
+		if(event & APP_EVT_WIFI_READY)
+		{
+			ESP32_WIFI_Info_T wifi_info = {0};
+			if(xQueueReceive(wifi_result_queue, &wifi_info, 0)== pdPASS)
+			{
+				wifi_display_update(&wifi_info);
+			}
+		}
+		if(event & APP_EVT_TIME_SYNC)
+		{
+			xTaskNotify(network_task_handle, NET_EVT_TIME_SYNC, eSetBits);
+		}
+		if(event & APP_EVT_TIME_SYNC_READY)
+		{
+			esp_date_time_t esp_date = {0};
+			if(xQueueReceive(time_sync_result_queue, &esp_date, 0)== pdPASS)
+			{
+				time_apply(&esp_date);
+			}
+		}
+	}
+}
+void application_start(void)
+{
+	BaseType_t result;
+	weather_result_queue = xQueueCreate(1, sizeof(weather_info_t));
+	configASSERT(weather_result_queue != NULL);
+	wifi_result_queue = xQueueCreate(1, sizeof(ESP32_WIFI_Info_T));
+	configASSERT(wifi_result_queue != NULL);
+	time_sync_result_queue = xQueueCreate(1, sizeof(esp_date_time_t));
+	configASSERT(time_sync_result_queue != NULL);
+	result = xTaskCreate(application_task,"application_task",1024,NULL,1,&application_task_handle);
+	configASSERT(result == pdPASS);
+	result = xTaskCreate(network_task,"network_task",1024,NULL,1,&network_task_handle);
+	configASSERT(result == pdPASS);
+	time_update_timer = xTimerCreate("time_update", pdMS_TO_TICKS(1000), pdTRUE, NULL, time_update_timer_callback);
+	configASSERT(time_update_timer != NULL);
+	result = xTimerStart(time_update_timer, 0);
+	configASSERT(result == pdPASS);
+	indoor_update_timer = xTimerCreate("indoor_update", pdMS_TO_TICKS(INDOOR_UPDATE_INTERVAL), pdTRUE, NULL, indoor_update_timer_callback);
+	configASSERT(indoor_update_timer != NULL);
+	result = xTimerStart(indoor_update_timer, 0);
+	configASSERT(result == pdPASS);
+	outdoor_update_timer = xTimerCreate("outdoor_update", pdMS_TO_TICKS(OUTDOOR_UPDATE_INTERVAL), pdTRUE, NULL, outdoor_update_timer_callback);
+	configASSERT(outdoor_update_timer != NULL);
+	result = xTimerStart(outdoor_update_timer, 0);
+	configASSERT(result == pdPASS);
+	wifi_update_timer = xTimerCreate("wifi_update", pdMS_TO_TICKS(WIFI_UPDATE_INTERVAL), pdTRUE, NULL, wifi_update_timer_callback);
+	configASSERT(wifi_update_timer != NULL);
+	result = xTimerStart(wifi_update_timer, 0);
+	configASSERT(result == pdPASS);
+	time_sync_timer = xTimerCreate("time_sync", pdMS_TO_TICKS(TIME_SYNC_INTERVAL), pdTRUE, NULL, time_sync_timer_callback);
+	configASSERT(time_sync_timer != NULL);
+	result = xTimerStart(time_sync_timer, 0);
+	configASSERT(result == pdPASS);
+
+}
+static void application_init(void)
 {  
 	bsp_init();
     ST7789_Init();
@@ -36,117 +229,11 @@ void application_init(void)
 	wifi_init();
 	wifi_page_display();
 	wifi_connect();
-    main_page_display_init();
-    cpu_tick_set_callback(cpu_tick_callback_handler);  
+    main_page_display_init();  
 }
-void cpu_tick_callback_handler(void)
-{
-	if(time_sync_delay > 0)
-	{
-		time_sync_delay--;
-	}
-	if(wifi_update_delay > 0)
-	{
-		wifi_update_delay--;
-	}
-	if(time_update_delay > 0)
-	{
-		time_update_delay--;
-	}
-	if(indoor_update_delay > 0)
-	{
-		indoor_update_delay--;
-	}
-	if(outdoor_update_delay > 0)
-	{
-		outdoor_update_delay--;
-	}
-}
-static void time_sync(void)
-{
-	if(time_sync_delay > 0)
-	{
-		return;
-	}
-	time_sync_delay = TIME_SYNC_INTERVAL;
-	esp_date_time_t esp_date = {0};
-	if(!ESP_Get_RealTime(&esp_date))
-	{
-		printf("[SNTP]ESP_Get_RealTime failed\r\n");
-		time_sync_delay = SECONDS(5);
-		return;
-	}
-	if(esp_date.year < 2000)
-	{
-		printf("[SNTP]Invalid year\r\n");
-		time_sync_delay = SECONDS(5);
-		return;
-	}
-	printf("[SNTP]\n %d-%d-%d %d:%d:%d %s\r\n",
-		esp_date.year,esp_date.month,esp_date.day,esp_date.hour,esp_date.minute,esp_date.second,
-		esp_date.weekday==1?"Monday":
-		esp_date.weekday==2?"Tuesday":
-		esp_date.weekday==3?"Wednesday":
-		esp_date.weekday==4?"Thursday":
-		esp_date.weekday==5?"Friday":
-		esp_date.weekday==6?"Saturday":
-		esp_date.weekday==7?"Sunday":
-		"Unknown");
-	rtc_time_t rtc_date = {0};
-	rtc_date.year = esp_date.year;
-	rtc_date.month = esp_date.month;
-	rtc_date.day = esp_date.day;
-	rtc_date.hour = esp_date.hour;
-	rtc_date.minute = esp_date.minute;
-	rtc_date.second = esp_date.second;
-	rtc_date.weekday = esp_date.weekday;
-	RTC_Set_Time(&rtc_date);
-
-	time_update_delay = 10;
-
-}
-static void wifi_update(void)
-{	
-	static ESP32_WIFI_Info_T last_info = {0};
-	if(wifi_update_delay > 0)
-	{
-		return;
-	}
-	wifi_update_delay = WIFI_UPDATE_INTERVAL;
-	ESP32_WIFI_Info_T current_info = {0};
-	if(!ESP_WiFi_Info_Get(&current_info))//解析WiFi连接状态和AP信息，ESP32返回信息，存储到current_info结构体中
-	{
-		printf("[WIFI]ESP_WiFi_Info_Get failed\r\n");
-		return;
-	}
-	if(current_info.connection_state == last_info.connection_state)
-	{
-		return;
-	}
-	if(current_info.connection_state)
-	{
-		main_page_wifi_refresh(true);
-		printf("[WIFI]WiFi connected to %s\r\n",current_info.ssid);
-		printf("[WIFI]\nSSID: %s, BSSID: %s, Channel: %d, RSSI: %d\r\n",
-			current_info.ssid,current_info.bssid,current_info.channel,current_info.rssi);
-	}
-	else
-	{
-		main_page_wifi_refresh(false);
-		printf("[WIFI]WiFi disconnected from %s\r\n",last_info.ssid);
-	}
-	last_info = current_info;
-}
-
 static void time_update(void)
 {
 	static rtc_time_t last_time = {0};
-	if(time_update_delay > 0)
-	{
-		return;
-	}
-	time_update_delay = TIME_UPDATE_INTERVAL;
-
 	rtc_time_t current_time = {0};
 	RTC_Get_Time(&current_time);
 	if(current_time.year < 2020)
@@ -172,11 +259,6 @@ static void time_update(void)
 static void indoor_update(void)
 {
 	static float last_temperature,last_humidity;
-	if(indoor_update_delay > 0)
-	{
-		return;
-	}
-	indoor_update_delay = INDOOR_UNPDATE_INTERVAL;
 
 	if(!AHT20_Measurement_start())
 	{
@@ -203,40 +285,128 @@ static void indoor_update(void)
 	}
 	printf("[AHT20]Temperature: %.2f, Humidity: %.2f\r\n",temperature,humidity);
 }
-static void outdoor_update(void)
+/* 只访问网络、获取并解析天气；不刷新屏幕。 */
+static bool outdoor_fetch(weather_info_t *weather_info)
 {
-	static weather_info_t last_weather_info = {0};
-	if(outdoor_update_delay > 0)
+	if(weather_info == NULL)
 	{
-		return;
+		return false;
 	}
-	outdoor_update_delay = OUTDOOR_UNPDATE_INTERVAL;
-	weather_info_t current_weather_info = {0};
 	const char *weather_responce = ESP_HTTP_Get(WEATHER_URL);
 	if(weather_responce == NULL)
 	{
 		printf("[WEATHER]http error\r\n");
-		return;
+		return false;
 	}
-	if(!parse_weather_responce(weather_responce,&current_weather_info))
+	if(!parse_weather_responce(weather_responce,weather_info))
 	{
 		printf("[WEATHER]parse_weather_responce failed\r\n");
+		return false;
+	}
+	printf("[WEATHER]\n %s, %s, %.2f\r\n",
+		weather_info->city,weather_info->weather,weather_info->temperature);
+	return true;
+}
+/* 只操作 UI；不访问 ESP32、不执行 HTTP。 */
+static void outdoor_display_update(const weather_info_t *weather_info)
+{
+	static weather_info_t last_weather_info = {0};
+	if(weather_info == NULL)
+	{
 		return;
 	}
-	if(last_weather_info.weather_code != current_weather_info.weather_code ||
-		last_weather_info.temperature != current_weather_info.temperature)
-		{
-			main_page_outdoor_refresh(current_weather_info.temperature,
-									current_weather_info.weather_code);
-		}
-	printf("[WEATHER]\n %s, %s, %.2f\r\n",
-		current_weather_info.city,current_weather_info.weather,current_weather_info.temperature);
+	if(last_weather_info.weather_code != weather_info->weather_code ||
+		last_weather_info.temperature != weather_info->temperature)
+	{
+		main_page_outdoor_refresh(weather_info->temperature,
+									weather_info->weather_code);
+		last_weather_info = *weather_info;
+	}
 }
-void application_run(void)
+/* 只访问 ESP32；不刷新屏幕。 */
+static bool wifi_fetch(ESP32_WIFI_Info_T *wifi_info)
 {
-    time_sync();
-    wifi_update();
-    time_update();
-    indoor_update();
-    outdoor_update();
+	if(wifi_info == NULL)
+	{
+		return false;
+	}
+	if(!ESP_WiFi_Info_Get(wifi_info))
+	{
+		printf("[WIFI]ESP_WiFi_Info_Get failed\r\n");
+		return false;
+	}
+	return true;
+}
+/* 只刷新 UI；不访问 ESP32。 */
+static void wifi_display_update(const ESP32_WIFI_Info_T *wifi_info)
+{
+	static ESP32_WIFI_Info_T last_wifi_info = {0};
+	if(wifi_info == NULL)
+	{
+		return;
+	}
+	if(wifi_info->connection_state == last_wifi_info.connection_state)
+	{
+		return;
+	}
+	if(wifi_info->connection_state)
+	{
+		main_page_wifi_refresh(true);
+		printf("[WIFI]WiFi connected to %s\r\n",wifi_info->ssid);
+		printf("[WIFI]\nSSID: %s, BSSID: %s, Channel: %d, RSSI: %d\r\n",
+			wifi_info->ssid,wifi_info->bssid,wifi_info->channel,wifi_info->rssi);
+	}
+	else
+	{
+		main_page_wifi_refresh(false);
+		printf("[WIFI]WiFi disconnected from %s\r\n",last_wifi_info.ssid);
+	}
+	last_wifi_info = *wifi_info;
+}
+/* 只访问 ESP32；以后由 network_task 调用。 */
+static bool time_fetch(esp_date_time_t *esp_date)
+{
+	if(esp_date == NULL)
+	{
+		return false;
+	}
+	if(!ESP_Get_RealTime(esp_date))
+	{
+		printf("[TIME]ESP_Time_Get failed\r\n");
+		return false;
+	}
+	return true;
+}
+/* 只操作 RTC；以后由 application_task 调用。 */
+static void time_apply(const esp_date_time_t *esp_date)
+{
+	if(esp_date == NULL)
+	{
+		return;
+	}
+	if(esp_date->year < 2020)
+	{
+		return;
+	}
+	printf("[SNTP]\n %d-%d-%d %d:%d:%d %s\r\n",
+		esp_date->year,esp_date->month,esp_date->day,esp_date->hour,esp_date->minute,esp_date->second,
+		esp_date->weekday==1?"Monday":
+		esp_date->weekday==2?"Tuesday":
+		esp_date->weekday==3?"Wednesday":
+		esp_date->weekday==4?"Thursday":
+		esp_date->weekday==5?"Friday":
+		esp_date->weekday==6?"Saturday":
+		esp_date->weekday==7?"Sunday":
+		"Unknown");
+    rtc_time_t rtc_date = {0};
+
+    rtc_date.year = esp_date->year;
+    rtc_date.month = esp_date->month;
+    rtc_date.day = esp_date->day;
+    rtc_date.hour = esp_date->hour;
+    rtc_date.minute = esp_date->minute;
+    rtc_date.second = esp_date->second;
+    rtc_date.weekday = esp_date->weekday;
+
+    RTC_Set_Time(&rtc_date);
 }

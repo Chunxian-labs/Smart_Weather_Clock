@@ -1,7 +1,8 @@
 #include "st7789.h"
 #include "st7789_port.h"
 #include "spi.h"
-#include "cpu_tick.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include <stddef.h>
 #include <string.h>
 #include "image.h"
@@ -15,11 +16,11 @@ static void ST7789_Reset(void)
 {
 //GPIO_ResetBits(RESET_PORT, RESET_PIN);
     ST7789_Reset_Low();
-    cpu_delay_us(20);
+    vTaskDelay(pdMS_TO_TICKS(1));
     //根据数据手册，当延时时间大于等于10us时，ST7789会自动复位，需要等待10us以上
     // GPIO_SetBits(RESET_PORT, RESET_PIN);
     ST7789_Reset_High();
-    cpu_delay_ms(120);
+    vTaskDelay(pdMS_TO_TICKS(120));
     //等待120ms之后，才可以进行唤醒操作
 }
 static bool ST7789_WriteRegister(uint8_t reg,uint8_t data[],uint16_t len)
@@ -106,7 +107,7 @@ bool ST7789_Init_display(void)
     ST7789_Reset();
     if(!ST7789_WriteRegister(0x11, NULL, 0))   // Sleep out
         return false;
-    cpu_delay_ms(5);
+    vTaskDelay(pdMS_TO_TICKS(5));
     if(!ST7789_WriteRegister(0x36, (uint8_t[]){0x00}, 1))
         return false;
     if(!ST7789_WriteRegister(0x3A, (uint8_t[]){0x55}, 1))

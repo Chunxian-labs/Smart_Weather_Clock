@@ -35,7 +35,7 @@ extern uint32_t SystemCoreClock;
 /* Memory allocation related definitions. */
 #define configSUPPORT_STATIC_ALLOCATION                             0
 #define configSUPPORT_DYNAMIC_ALLOCATION                            1
-#define configTOTAL_HEAP_SIZE                                       (10 * 1024)
+#define configTOTAL_HEAP_SIZE                                       ( 92 * 1024)
 #define configAPPLICATION_ALLOCATED_HEAP                            0
 
 /* Hook function related definitions. */
@@ -92,7 +92,7 @@ void vAssertCalled(const char *file, int line);
 /* A header file that defines trace macro can be included here. */
 
 #define xPortPendSVHandler PendSV_Handler
-// #define xPortSysTickHandler SysTick_Handler
+#define xPortSysTickHandler SysTick_Handler
 #define vPortSVCHandler SVC_Handler
 
 #endif

@@ -34,7 +34,7 @@ set(SRC_FILES
         drivers/st7789/st7789.c
 
         # Board system peripherals(BSP)
-        bsp/cpu_tick/cpu_tick.c
+        # bsp/cpu_tick/cpu_tick.c
         bsp/i2c/i2c.c
         bsp/rtc/rtc.c
         bsp/spi/spi.c
@@ -126,7 +126,7 @@ target_include_directories(${EXECUTABLE} PRIVATE
         drivers/esp32
         drivers/st7789
         # Board system peripherals(BSP)
-        bsp/cpu_tick
+        # bsp/cpu_tick
         bsp/i2c
         bsp/rtc
         bsp/spi

@@ -6,11 +6,16 @@
 
 int main(void)
 {
-    application_init();
-	while(1)
-	{
-		application_run();
-	}
+    application_start();
+
+    vTaskStartScheduler();
+
+    /* 只有内存不足、调度器无法启动时才会到这里 */
+    while (1)
+    {
+        ;//code should never reach here
+    }
+    return 0;
 }
 void vAssertCalled(const char *file, int line)
 {

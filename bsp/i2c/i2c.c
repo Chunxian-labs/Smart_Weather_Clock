@@ -1,5 +1,6 @@
 #include "i2c.h"
 #include "stm32f4xx.h"
+#include "stddef.h"
 void i2c2_init(void)
 {
     RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOB, ENABLE);
@@ -48,32 +49,64 @@ static bool Check_Event_Delay(uint32_t event)
 }
 bool i2c2_write(uint8_t slave_address,uint8_t data[],uint32_t len)
 {
+    if(data == NULL || len == 0)
+    {
+        return false;
+    }
     I2C_GenerateSTART(I2C2, ENABLE);
-    Check_Event_Delay(I2C_EVENT_MASTER_MODE_SELECT);
+    if(!Check_Event_Delay(I2C_EVENT_MASTER_MODE_SELECT))
+    {
+        I2C_GenerateSTOP(I2C2, ENABLE);
+        return false;
+    } 
     I2C_Send7bitAddress(I2C2, slave_address, I2C_Direction_Transmitter);
-    Check_Event_Delay(I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED);
+    if(!Check_Event_Delay(I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED))
+    {
+        I2C_GenerateSTOP(I2C2, ENABLE);
+        return false;
+    }
     for(uint32_t i = 0;i<len;i++)
     {
         I2C_SendData(I2C2, data[i]);
-        Check_Event_Delay(I2C_EVENT_MASTER_BYTE_TRANSMITTING);
+        if(!Check_Event_Delay(I2C_EVENT_MASTER_BYTE_TRANSMITTING)) 
+        {
+            I2C_GenerateSTOP(I2C2, ENABLE);
+            return false;
+        }
     }
     I2C_GenerateSTOP(I2C2, ENABLE);
     return true;
 }
 bool i2c2_read(uint8_t slave_address,uint8_t data[],uint32_t len)
 {
+    if(data == NULL || len == 0)
+    {
+        return false;
+    }
     I2C_AcknowledgeConfig(I2C2, ENABLE);
     I2C_GenerateSTART(I2C2, ENABLE);
-    Check_Event_Delay(I2C_EVENT_MASTER_MODE_SELECT);
+    if(!Check_Event_Delay(I2C_EVENT_MASTER_MODE_SELECT))
+    {
+        I2C_GenerateSTOP(I2C2, ENABLE);
+        return false;
+    } 
     I2C_Send7bitAddress(I2C2, slave_address, I2C_Direction_Receiver);
-    Check_Event_Delay(I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED);
+    if(!Check_Event_Delay(I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED))
+    {
+        I2C_GenerateSTOP(I2C2, ENABLE);
+        return false;
+    }
     for(uint32_t i = 0;i<len;i++)
     {
         if(i==(len-1))
         {
             I2C_AcknowledgeConfig(I2C2, DISABLE);
         }
-        Check_Event_Delay(I2C_EVENT_MASTER_BYTE_RECEIVED);
+        if(!Check_Event_Delay(I2C_EVENT_MASTER_BYTE_RECEIVED))
+        {
+            I2C_GenerateSTOP(I2C2, ENABLE);
+            return false;
+        }
          data[i] = I2C_ReceiveData(I2C2);
     }
     I2C_GenerateSTOP(I2C2, ENABLE);

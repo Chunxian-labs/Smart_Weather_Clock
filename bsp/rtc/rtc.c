@@ -1,6 +1,7 @@
 #include "rtc.h"
-#include "cpu_tick.h"
 #include "stm32f4xx.h"
+#include "FreeRTOS.h"
+#include "task.h"
 #include <string.h>
 void RTC_Config(void)
 {
@@ -15,10 +16,10 @@ void RTC_Config(void)
 
   /* 优先使用 LSE 32.768kHz 外部晶振 */
   RCC_LSEConfig(RCC_LSE_ON);
-  uint32_t start = (uint32_t)cpu_tick_get_ms();
+  TickType_t start = xTaskGetTickCount();
   while(RCC_GetFlagStatus(RCC_FLAG_LSERDY) == RESET)
   {
-    if((uint32_t)cpu_tick_get_ms() - start > 5000)
+    if(xTaskGetTickCount() - start > pdMS_TO_TICKS(5000))
     {
       /* LSE 一直没就绪（板子可能没焊 32.768k 晶振），退回 LSI 内部低速时钟 */
       RCC_LSEConfig(RCC_LSE_OFF);
