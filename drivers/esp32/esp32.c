@@ -284,11 +284,11 @@ static bool parse_CIPSNTPCFG_responce(const char *responce,esp_date_time_t *data
 }
 bool ESP_Get_RealTime(esp_date_time_t *data_time)
 {
+    if(data_time == NULL)
+        return false;
     if(!ESP_Send_CMD("AT+CIPSNTPTIME?",2000))
         return false;
     if(!parse_CIPSNTPCFG_responce(ESP_Get_Response(),data_time))
-        return false;
-    if(data_time == NULL)
         return false;
     return true;
 }

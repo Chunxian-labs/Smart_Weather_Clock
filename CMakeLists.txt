@@ -59,6 +59,7 @@ set(SRC_FILES
         Firmware/driver/src/stm32f4xx_i2c.c
         Firmware/driver/src/stm32f4xx_spi.c
         Firmware/driver/src/stm32f4xx_rtc.c
+        Firmware/driver/src/stm32f4xx_dma.c
 
         # Third_lib
         third_lib/fonts/font16_maple.c
@@ -81,6 +82,15 @@ set(SRC_FILES
         third_lib/images/moon.c
         third_lib/images/sunny.c
         third_lib/images/wifi_pic.c
+        third_lib/freertos/portable/port.c
+        third_lib/freertos/portable/heap_4.c
+        third_lib/freertos/source/croutine.c
+        third_lib/freertos/source/event_groups.c
+        third_lib/freertos/source/list.c
+        third_lib/freertos/source/queue.c
+        third_lib/freertos/source/stream_buffer.c
+        third_lib/freertos/source/tasks.c
+        third_lib/freertos/source/timers.c
 
         # Utilities
         utilities/ring_buffer.c
@@ -125,6 +135,8 @@ target_include_directories(${EXECUTABLE} PRIVATE
         # Third_lib
         third_lib/fonts
         third_lib/images
+        third_lib/freertos/include
+        third_lib/freertos/portable
         # Utilities
         utilities
         )

@@ -89,22 +89,7 @@ bool ST7789_fill_color(uint16_t x1,uint16_t y1,uint16_t x2,uint16_t y2,uint16_t 
     ST7789_CS_Low();//拉低片选信号，选中ST7789
     ST7789_DC_High();//发送的是数据,低电平命令，高电平数据
     uint32_t total_pixels = (x2 - x1 + 1) * (y2 - y1 + 1);
-    uint8_t color_data[2] = {(color>>8)&0xFF, color&0xFF};
-    
-    for(uint32_t i=0;i<total_pixels;i++)
-    {
-        if(spi2_write_byte(color_data[0]) == false)
-        {
-            ST7789_CS_High();//拉高片选信号，取消选中ST7789
-            return false;
-        }
-        if(spi2_write_byte(color_data[1]) == false)
-        {
-            ST7789_CS_High();//拉高片选信号，取消选中ST7789
-            return false;
-        }
-    }
-    if(spi2_wait_idle()==false)
+    if(!spi2_write_dma_16(&color,total_pixels,false))
     {
         ST7789_CS_High();//拉高片选信号，取消选中ST7789
         return false;
@@ -165,6 +150,55 @@ bool ST7789_Init_display(void)
     ST7789_Set_BlackLight(true);
     return true;
 }
+static bool ST7789_draw_font(uint16_t x,uint16_t y,uint16_t fwidth,uint16_t fheight,const uint8_t *font_model,uint16_t color,uint16_t bg_color)
+{
+    if(font_model == NULL)
+    {
+        return false;
+    }
+
+    if(fwidth > 76 || fheight > 76)
+    {
+        return false;
+    }
+    uint16_t bytes_per_row = (fwidth + 7) / 8;
+
+    static uint16_t buffer[76 * 76];
+    uint16_t *buf_ptr = buffer;
+
+    for(uint16_t row = 0; row < fheight; row++)
+    {
+        const uint8_t *row_data =
+            font_model + row * bytes_per_row;
+
+        for(uint16_t col = 0; col < fwidth; col++)
+        {
+            uint8_t byte = row_data[col / 8];
+            uint8_t bit = 7 - (col % 8);
+
+            uint16_t pixel_color =
+                (byte & (1 << bit)) ? color : bg_color;
+
+            *buf_ptr++ = pixel_color;
+        }
+    }
+    if(!ST7789_Set_Range_gram_pre(x,y,x + fwidth - 1,y + fheight - 1))
+    {
+        return false;
+    }
+
+    ST7789_CS_Low();
+    ST7789_DC_High();
+
+    if(!spi2_write_dma_16(buffer,buf_ptr - buffer,true))
+    {
+        ST7789_CS_High();
+        return false;
+    }
+    ST7789_CS_High();
+    return true;
+}
+
 static const uint8_t *ASCII_Get_model(const char ch,const font_t *font)
 {
     if(!ch || !font->ascii_model)
@@ -200,51 +234,11 @@ bool ST7789_write_ascii(uint16_t x,uint16_t y,char ch,uint16_t color,uint16_t bg
     {
         return false;
     }
-    if(!ST7789_Set_Range_gram_pre(x,y,x+fwidth-1,y+fheight-1))
-    {
-        return false;
-    }
     const uint8_t *model_ptr = ASCII_Get_model(ch,font);
     if(model_ptr == NULL) return false;//获取字体模型指针，指向当前字符的模型
-    ST7789_CS_Low();//拉低片选信号，选中ST7789
-    ST7789_DC_High();//发送的是命令,高电平数据，低电平命令
-    uint8_t color_data[2] = {(color>>8)&0xFF, color&0xFF};
-    uint8_t bg_color_data[2] = {(bg_color>>8)&0xFF, bg_color&0xFF};
-    uint16_t bytes_per_row = (fwidth+7)/8;//每一行需要的字节数
-    for(uint16_t row=0;row<fheight;row++)
+    if(!ST7789_draw_font(x,y,fwidth,fheight,model_ptr,color,bg_color))
     {
-        const uint8_t *row_data = model_ptr+row*bytes_per_row;//获取当前行的指针，当前行第一个字节的地址
-        for(uint16_t col=0;col<fwidth;col++)
-        {
-            uint8_t byte = row_data[col/8];//获取当前像素所在字节
-            uint8_t bit = 7-(col%8);//获取当前像素所在字节的位
-            if(byte & (1<<bit))//如果当前像素为1，显示字体颜色
-            {
-                if(spi2_write_byte(color_data[0])==false)
-                {
-                    ST7789_CS_High();//拉高片选信号，取消选中ST7789
-                    return false;
-                }
-                if(spi2_write_byte(color_data[1])==false)
-                {
-                    ST7789_CS_High();//拉高片选信号，取消选中ST7789
-                    return false;
-                }
-            }
-            else//如果当前像素为0，显示背景颜色
-            {
-                if(spi2_write_byte(bg_color_data[0])==false)
-                {
-                    ST7789_CS_High();//拉高片选信号，取消选中ST7789
-                    return false;
-                }
-                if(spi2_write_byte(bg_color_data[1])==false)
-                {
-                    ST7789_CS_High();//拉高片选信号，取消选中ST7789
-                    return false;
-                }                
-            }
-        }
+        return false;
     }
     if(spi2_wait_idle()==false)
     {
@@ -274,51 +268,9 @@ bool ST7789_write_Chinese(uint16_t x,uint16_t y,char *ch,uint16_t color,uint16_t
     {
         return false;
     }
-    if(!ST7789_Set_Range_gram_pre(x,y,x+fwidth-1,y+fheight-1))
+    if(!ST7789_draw_font(x,y,fwidth,fheight,Chinese_model_ptr->model,color,bg_color))
     {
         return false;
-    }
-    ST7789_CS_Low();//拉低片选信号，选中ST7789
-    ST7789_DC_High();//发送的是命令,高电平数据，低电平命令
-   
-    uint8_t color_data[2] = {(color>>8)&0xFF, color&0xFF};
-    uint8_t bg_color_data[2] = {(bg_color>>8)&0xFF, bg_color&0xFF};
-    uint16_t bytes_per_row = (fwidth+7)/8;//每一行需要的字节数
-
-    for(uint16_t row=0;row<fheight;row++)
-    {
-        const uint8_t *row_data = Chinese_model_ptr->model +row*bytes_per_row;//获取当前行的指针，当前行第一个字节的地址
-        for(uint16_t col=0;col<fwidth;col++)
-        {
-            uint8_t byte = row_data[col/8];//获取当前像素所在字节
-            uint8_t bit = 7-(col%8);//获取当前像素所在字节的位
-            if(byte & (1<<bit))//如果当前像素为1，显示字体颜色
-            {
-                if(spi2_write_byte(color_data[0])==false)
-                {
-                    ST7789_CS_High();//拉高片选信号，取消选中ST7789
-                    return false;
-                }
-                if(spi2_write_byte(color_data[1])==false)
-                {
-                    ST7789_CS_High();//拉高片选信号，取消选中ST7789
-                    return false;
-                }
-            }
-            else//如果当前像素为0，显示背景颜色
-            {
-                if(spi2_write_byte(bg_color_data[0])==false)
-                {
-                    ST7789_CS_High();//拉高片选信号，取消选中ST7789
-                    return false;
-                }
-                if(spi2_write_byte(bg_color_data[1])==false)
-                {
-                    ST7789_CS_High();//拉高片选信号，取消选中ST7789
-                    return false;
-                }
-            }
-        }
     }
     if(spi2_wait_idle()==false)
     {
@@ -375,31 +327,16 @@ bool ST7789_Draw_image(uint16_t x,uint16_t y,const image_t *image)
 {
     if(x>= ST7789_WIDTH || y>= ST7789_HEIGHT || image == NULL) return false;
     if(x+image->width-1 >= ST7789_WIDTH || y+image->height-1 >= ST7789_HEIGHT) return false;
-    uint32_t image_pixel = image->width*image->height*2;//图片为16位彩色RGB图片，所以需要两字节
+    uint32_t image_pixel = image->width*image->height;//图片为16位彩色RGB图片，所以需要两字节
     if(!ST7789_Set_Range_gram_pre(x,y,x+image->width-1,y+image->height-1))
     {
         return false;
     }
     ST7789_CS_Low();
     ST7789_DC_High();
-    for(uint32_t i=0;i<image_pixel;i+=2)
+    if(!spi2_write_dma_16((const uint16_t *)image->image_data,image_pixel,true))
     {
-        if(!spi2_write_byte(image->image_data[i+1]))
-        {
-            ST7789_CS_High();//拉高片选信号，取消选中ST7789
-            return false;
-        }
-        if(!spi2_write_byte(image->image_data[i]))
-        {
-            ST7789_CS_High();//拉高片选信号，取消选中ST7789
-            return false;
-        }
-        //因为图片转换脚本转换出来的像素是按照小端模式存储的，所以在传输的时候，需要先发第二个字节，再发第一个字节
-    }
-    // while(SPI_GetFlagStatus(SPI2, SPI_FLAG_BSY) != RESET);// //等待不忙
-    if(spi2_wait_idle()==false)
-    {
-        ST7789_CS_High();
+        ST7789_CS_High();//拉高片选信号，取消选中ST7789
         return false;
     }
     ST7789_CS_High();
