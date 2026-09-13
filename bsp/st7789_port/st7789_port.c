@@ -1,6 +1,6 @@
 #include "st7789_port.h"
 #include "stm32f4xx.h"
-
+//初始化LCD屏幕的引脚
 void ST7789_Port_Init(void)
 {
     RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOE, ENABLE);

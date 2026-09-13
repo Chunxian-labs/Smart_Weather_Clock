@@ -3,6 +3,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include <string.h>
+//初始化RTC，并进行错误检查，如果高速时钟无法连接，转为低速时钟
 void RTC_Config(void)
 {
   /* Enable the PWR clock */
@@ -44,6 +45,7 @@ rtc_init:
   /* Wait for RTC APB registers synchronisation */
   RTC_WaitForSynchro();
 }
+//设置RTC时间，单次设置，传入参数为rtc_time_t结构体指针，结构体中包含年、月、日、周、时、分、秒
 static void RTC_Set_Time_Once(const rtc_time_t *time)
 {
     RTC_DateTypeDef RTC_DateStructure;

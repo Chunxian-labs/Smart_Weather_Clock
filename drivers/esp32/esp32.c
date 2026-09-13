@@ -79,8 +79,7 @@ static AT_ACK_T ESP_AT_USART_Wait_Response(uint32_t timeout)
     while(rxlen<sizeof(rxbuff)-1)
     {
         TickType_t elapsed_ticks = xTaskGetTickCount() - start;
-        uint32_t elapsed_ms = elapsed_ticks * portTICK_PERIOD_MS;
-
+        uint32_t elapsed_ms = elapsed_ticks * portTICK_PERIOD_MS;//这里portTICK_PERIOD_MS表示一个tick多少ms
         if (elapsed_ms >= timeout)
         {
             return AT_ACK_NONE;

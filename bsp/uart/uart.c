@@ -12,6 +12,7 @@ static USART_Callback_t USART2_Callback_func = NULL;
 static ring_buffer_t uart1_rx_buffer;
 static ring_buffer_t uart2_rx_buffer;
 static volatile uint32_t uart2_rx_overflow_count = 0;
+//USART1-中断服务函数
 void USART1_CallBack_Set(USART_Callback_t func)
 {
     if(func != NULL)
@@ -19,6 +20,7 @@ void USART1_CallBack_Set(USART_Callback_t func)
         USART1_Callback_func = func;
     }
 }
+//USART2-中断服务函数
 void USART2_CallBack_Set(USART_Callback_t func)
 {
     if(func != NULL)
@@ -26,6 +28,7 @@ void USART2_CallBack_Set(USART_Callback_t func)
         USART2_Callback_func = func;
     }
 }
+//USART1-初始化，用于stm32主控与PC通信
 void uart1_init(void)
 {
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART1, ENABLE);
@@ -72,6 +75,7 @@ void uart1_init(void)
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
     NVIC_Init(&NVIC_InitStructure);
 }
+//USART2-初始化，用于stm32主控与ESP32通信
 void uart2_init(void)
 {
     ring_buffer_init(&uart2_rx_buffer);
@@ -119,6 +123,7 @@ void uart2_init(void)
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
     NVIC_Init(&NVIC_InitStructure);
 }
+//USART1-写入数据，将数据发送到PC
 bool uart1_write_byte(uint8_t data)
 {
     TickType_t start = xTaskGetTickCount();
@@ -132,6 +137,7 @@ bool uart1_write_byte(uint8_t data)
     USART_SendData(USART1, (uint16_t)data);
     return true;
 }
+//USART1-读取数据，从uart1_rx_buffer中读取数据
 bool uart1_read_byte(uint8_t *data,uint32_t timeout_ms)
 {
     if(data == NULL)
@@ -146,6 +152,7 @@ bool uart1_read_byte(uint8_t *data,uint32_t timeout_ms)
     }
     return ring_buffer_read(&uart1_rx_buffer,data);
 }
+//USART2-写入数据，将数据发送到ESP32
 bool uart2_write_byte(uint8_t data)
 {
     TickType_t start = xTaskGetTickCount();
@@ -159,6 +166,7 @@ bool uart2_write_byte(uint8_t data)
     USART_SendData(USART2, (uint16_t)data);
     return true;
 }
+//USART2-读取数据，从uart2_rx_buffer中读取数据
 bool uart2_read_byte(uint8_t *data,uint32_t timeout_ms)
 {
     if(data == NULL)
@@ -177,6 +185,7 @@ void uart2_rx_clear(void)
 {
     ring_buffer_clear(&uart2_rx_buffer);
 }
+//USART1-中断服务函数，用于接收PC发送的数据，数据存入uart1_rx_buffer
 void USART1_IRQHandler(void)
 {
     if(USART_GetITStatus(USART1, USART_IT_RXNE) != RESET)
@@ -185,6 +194,7 @@ void USART1_IRQHandler(void)
             ring_buffer_write(&uart1_rx_buffer,data);
     }
 }
+//USART2-中断服务函数，用于接收ESP32发送的数据，数据存入uart2_rx_buffer
 void USART2_IRQHandler(void)
 {
     if(USART_GetITStatus(USART2, USART_IT_RXNE) != RESET)

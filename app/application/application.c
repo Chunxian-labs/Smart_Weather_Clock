@@ -193,11 +193,13 @@ void application_start(void)
 	configASSERT(wifi_result_queue != NULL);
 	time_sync_result_queue = xQueueCreate(1, sizeof(esp_date_time_t));
 	configASSERT(time_sync_result_queue != NULL);
+
 	result = xTaskCreate(application_task,"application_task",1024,NULL,1,&application_task_handle);
 	configASSERT(result == pdPASS);
 	result = xTaskCreate(network_task,"network_task",1024,NULL,1,&network_task_handle);
 	configASSERT(result == pdPASS);
-	time_update_timer = xTimerCreate("time_update", pdMS_TO_TICKS(1000), pdTRUE, NULL, time_update_timer_callback);
+
+	time_update_timer = xTimerCreate("time_update", pdMS_TO_TICKS(TIME_UPDATE_INTERVAL), pdTRUE, NULL, time_update_timer_callback);
 	configASSERT(time_update_timer != NULL);
 	result = xTimerStart(time_update_timer, 0);
 	configASSERT(result == pdPASS);
