@@ -13,6 +13,12 @@
 
 项目采用 **FreeRTOS** 将界面刷新与网络通信拆分为独立任务，以避免 HTTP 请求、ESP32 AT 指令等待等耗时操作造成页面卡顿。
 
+### 项目演示
+
+[![智能天气时钟演示](Mainpage%20Showcase.jpg)](https://youtube.com/shorts/absaDpgcwJ4?feature=share)
+
+点击上方图片观看项目演示视频，或访问 [YouTube Shorts](https://youtube.com/shorts/absaDpgcwJ4?feature=share)。
+
 ### 2. 功能清单
 
 | 功能 | 说明 |
@@ -173,6 +179,12 @@ cmake --build build
 Smart Weather Clock is an embedded weather-clock firmware for the **STM32F407VET6**. It displays local time, date, indoor temperature/humidity, outdoor weather, and Wi-Fi status on an ST7789 LCD. An ESP32 provides Wi-Fi connectivity, HTTP weather retrieval, and SNTP time synchronization.
 
 The firmware uses **FreeRTOS** to isolate UI updates from potentially slow ESP-AT, HTTP, and SNTP operations. This keeps the display responsive while network requests are in progress.
+
+### Project Demo
+
+[![Smart Weather Clock Demo](Mainpage%20Showcase.jpg)](https://youtube.com/shorts/absaDpgcwJ4?feature=share)
+
+Click the image above to watch the project demonstration, or open it on [YouTube Shorts](https://youtube.com/shorts/absaDpgcwJ4?feature=share).
 
 ### 2. Features
 
