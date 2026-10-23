@@ -4,12 +4,12 @@ cmake_minimum_required(VERSION 3.15.3)
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 # Path to toolchain file (must be before project())
-set(CMAKE_TOOLCHAIN_FILE ${CMAKE_SOURCE_DIR}/arm-none-eabi-gcc.cmake)
+set(CMAKE_TOOLCHAIN_FILE "${CMAKE_CURRENT_SOURCE_DIR}/arm-none-eabi-gcc.cmake")
 
 # Setup project, output and linker file
 project(Smart_Weather_Clock)
 set(EXECUTABLE ${PROJECT_NAME}.elf)
-set(LINKER_FILE ${CMAKE_SOURCE_DIR}/STM32F407XX_FLASH.ld)
+set(LINKER_FILE "${CMAKE_CURRENT_SOURCE_DIR}/STM32F407XX_FLASH.ld")
 
 enable_language(C ASM)
 set(CMAKE_C_STANDARD 99)
@@ -37,7 +37,7 @@ set(SRC_FILES
         # bsp/cpu_tick/cpu_tick.c
         bsp/i2c/i2c.c
         bsp/rtc/rtc.c
-        bsp/spi/spi.c
+        bsp/spi/spi.c # Includes DMA1_Stream4_IRQHandler; do not add a second handler.
         bsp/uart/uart.c
         bsp/st7789_port/st7789_port.c
 
@@ -158,7 +158,7 @@ target_compile_options(${EXECUTABLE} PRIVATE
 
 # Linker options
 target_link_options(${EXECUTABLE} PRIVATE
-        -T${LINKER_FILE}
+        "-T${LINKER_FILE}"
         -mcpu=cortex-m4
         -mfpu=fpv4-sp-d16 
         -mfloat-abi=hard
@@ -176,11 +176,13 @@ target_link_options(${EXECUTABLE} PRIVATE
 # Post-build: print size
 add_custom_command(TARGET ${EXECUTABLE}
         POST_BUILD
-        COMMAND ${CMAKE_SIZE_UTIL} ${EXECUTABLE})
+        COMMAND "${CMAKE_SIZE_UTIL}" "$<TARGET_FILE:${EXECUTABLE}>"
+        VERBATIM)
 
 # Post-build: create hex, bin, srec
 add_custom_command(TARGET ${EXECUTABLE}
         POST_BUILD
-        COMMAND ${CMAKE_OBJCOPY} -O srec --srec-len=64 ${EXECUTABLE} ${PROJECT_NAME}.s19
-        COMMAND ${CMAKE_OBJCOPY} -O ihex ${EXECUTABLE} ${PROJECT_NAME}.hex
-        COMMAND ${CMAKE_OBJCOPY} -O binary ${EXECUTABLE} ${PROJECT_NAME}.bin)
+        COMMAND "${CMAKE_OBJCOPY}" -O srec --srec-len=64 ${EXECUTABLE} ${PROJECT_NAME}.s19
+        COMMAND "${CMAKE_OBJCOPY}" -O ihex ${EXECUTABLE} ${PROJECT_NAME}.hex
+        COMMAND "${CMAKE_OBJCOPY}" -O binary "$<TARGET_FILE:${EXECUTABLE}>" "${PROJECT_NAME}.bin"
+        VERBATIM)

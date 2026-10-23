@@ -284,7 +284,25 @@ Do not commit real Wi-Fi credentials or API keys to a public repository. Move th
 
 ### 9. Current Limitations
 
-- SPI DMA is synchronous at the API level: DMA handles pixel movement, but the caller waits for completion.
+- SPI DMA keeps a synchronous API but blocks the caller on task notification index 1. DMA completion/error IRQ wakes the task; only a brief SPI BSY tail check is polled. LCD remains owned by application_task.
 - ESP-AT waiting can block `network_task`; it does not block the UI task.
 - LSI timekeeping is less accurate than LSE. An LSE crystal and VBAT backup are recommended.
 - Weather parsing is lightweight and tied to the expected response format rather than a full JSON parser.
+
+### SPI DMA interrupt update / DMA 中断版上板验证
+
+- 修改位置：`bsp/spi/spi.c`、`bsp/spi/spi.h`；中断函数也在 `spi.c`，CMake 已包含该文件，无须添加第二个 ISR。
+- DMA1 Stream4 / Channel0，SPI2 TX；NVIC 抢占优先级6，符合当前 FreeRTOS 最大系统调用优先级5的限制。
+- 应用事件用通知索引0，LCD DMA独占通知索引1。必须在调度器运行后的任务上下文调用，禁止在ISR或临界区调用。
+- LCD仍由应用/UI任务独占。接口传输结束才返回，栈上的颜色变量、字模缓冲区与原有CS控制保持有效。
+- 每块最多65535个像素；240×320整屏会拆为两块。每块等待500 ms，超时/错误停止DMA并返回false。
+
+编译：在工程根目录执行 `cmake -S . -B build_dma_irq -G Ninja`，然后 `cmake --build build_dma_irq`。
+
+烧录：连接ST-LINK、开发板供电后，在本机PowerShell执行 `& ".\flash_dma_irq.ps1"`。脚本会写入新固件、校验并复位启动，不会自动恢复旧固件。
+
+观察：欢迎页、天气页正常显示；时间冒号闪烁，温湿度能更新。需开启工程已有Wi-Fi配置对应的网络。
+
+若使用调试器，可观察全局 `spi2_dma_debug`：`blocks_completed`随刷屏增加；`errors`、`timeouts`应为0。传输正在进行时 `blocks_started`暂时比完成数多1是正常的。`wait_ticks`为等待过程经过的RTOS tick数，不是CPU占用率，不能直接换算成CPU释放百分比。
+
+本次已编译验证，尚未实际烧录验证。仍保留短暂的DMA停止握手及SPI尾部BSY检查，不是完全消除所有轮询。串口网络等待方式未在本次修改范围内。
