@@ -9,7 +9,6 @@
 #include "font.h"
 void ST7789_Init(void)
 {
-    spi2_init();
     ST7789_Port_Init();
 }
 static void ST7789_Reset(void)

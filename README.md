@@ -92,6 +92,12 @@ application_task  <──结果队列────  network_task
 - **任务通知（Task Notification）**：传递“该执行什么工作”或“结果已准备好”等事件位。
 - **长度为 1 的队列**：`weather_result_queue`、`wifi_result_queue`、`time_sync_result_queue` 仅保留最新结果，适合状态类数据，避免网络任务堆积过期数据。
 - **屏幕所有权**：仅 `application_task` 调用 UI/ST7789 刷新函数，避免多任务同时写屏造成闪烁或显示冲突。
+- **二值信号量**：用于 SPI DMA 传输同步；界面任务启动传输后阻塞等待，DMA 完成或错误中断释放信号量，任务唤醒后检查结果并收尾。
+
+#### LCD SPI DMA 传输
+
+ST7789 大块像素通过 SPI2 TX 的 DMA1 Stream4 / Channel0 发送。固定 DMA 参数在初始化时配置，每段仅更新源地址、像素数量及内存地址递增模式：图片和字模连续读取像素，纯色填充重复读取同一颜色值。
+每段最多传输 65535 个 16 位像素。任务启动 DMA 后通过二值信号量阻塞等待，完成或错误中断释放信号量；每段设置 500 ms 超时，超时或错误时停止 DMA 并返回失败。全部传输结束后检查 SPI BSY，确保最后几位发送完成再释放 LCD 片选。
 
 ### 5. 时间同步机制
 
@@ -122,7 +128,7 @@ drivers/
 ├─ esp32/                    ESP-AT 命令、HTTP、SNTP 时间解析
 └─ st7789/                   ST7789 显示驱动
 
-third_lib/                   FreeRTOS、SPL、字体和图片资源
+third_lib/                   FreeRTOS、字体和图片资源
 utilities/                   通用环形缓冲区
 Firmware/                    STM32 CMSIS 与 SPL
 ```
@@ -160,14 +166,6 @@ cmake --build build
 | Wi-Fi SSID 和密码 | `app/wifi/wifi.c` | 用于 ESP32 连接网络 |
 | 心知天气 API Key 和城市 | `app/application/application.c` 的 `WEATHER_URL` | 用于室外天气请求 |
 | SNTP 时区 | `drivers/esp32/esp32.c` | 当前配置为 `8`，即 UTC+8 |
-
-**请不要将真实 Wi-Fi 密码或 API Key 提交到公开仓库。** 推荐将其移至未追踪的本地配置头文件，并在 `.gitignore` 中忽略该文件。
-
-### 9. 已知设计边界
-
-- ESP32 AT 命令等待过程可能阻塞 `network_task`，但不会阻塞 UI 任务；因此页面刷新不会被 HTTP 请求直接拖慢。
-- LSI 的频率误差较大，建议硬件上安装 LSE 晶振，并使用 VBAT 保持 RTC。
-- 天气响应采用轻量文本解析，不是完整 JSON 解析器；若 API 返回格式变化，需要同步调整解析代码。
 
 ---
 
@@ -234,6 +232,11 @@ main.c → application_start() → FreeRTOS scheduler
 
 The project uses task notifications for event signaling and one-element queues for weather, Wi-Fi, and time-sync results. Keeping only the latest value is appropriate for state data and prevents stale network results from accumulating.
 
+#### LCD SPI DMA Transfers
+
+Bulk pixel data is sent through SPI2 TX using DMA1 Stream4 / Channel0. Fixed DMA parameters are configured once during initialization; each chunk updates only the source address, pixel count, and memory increment mode. Images and glyphs use incrementing addresses, while solid-color fills repeatedly read the same color value.
+Each chunk contains up to 65,535 16-bit pixels. The calling task blocks on a binary semaphore, which the DMA completion or error ISR releases. A 500 ms timeout per chunk and error cleanup stop DMA before returning failure. A final SPI BSY check ensures the last bits have been transmitted before releasing LCD chip select.
+
 ### 5. Time Synchronization
 
 The STM32 RTC does not access the network directly. After Wi-Fi is connected, the ESP32 is configured for SNTP. `network_task` sends `AT+CIPSNTPTIME?`, parses the returned time, and passes it to `application_task` through a queue. `application_task` writes it into STM32 RTC registers through `RTC_SetDate()` and `RTC_SetTime()`.
@@ -251,7 +254,7 @@ The display subsequently reads local RTC time every second. RTC uses the externa
 | `app/bsp_module/` | Unified board-support initialization |
 | `bsp/` | UART, I2C, SPI, RTC, and display-port support |
 | `drivers/` | AHT20, ESP32, and ST7789 device drivers |
-| `third_lib/` | FreeRTOS, SPL, fonts, and image assets |
+| `third_lib/` | FreeRTOS, fonts, and image assets |
 | `utilities/` | Shared utilities, including the ring buffer |
 
 ### 7. Build
@@ -279,11 +282,4 @@ Replace the following project-specific settings before use:
 | Seniverse API key and location | `WEATHER_URL` in `app/application/application.c` |
 | SNTP timezone | `drivers/esp32/esp32.c`; currently UTC+8 |
 
-Do not commit real Wi-Fi credentials or API keys to a public repository. Move them into a local, ignored configuration header for production use.
-
-### 9. Current Limitations
-
-- ESP-AT waiting can block `network_task`; it does not block the UI task.
-- LSI timekeeping is less accurate than LSE. An LSE crystal and VBAT backup are recommended.
-- Weather parsing is lightweight and tied to the expected response format rather than a full JSON parser.
 
